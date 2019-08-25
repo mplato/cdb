@@ -4,21 +4,21 @@ import time
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
+savePath = "C:\\Temp\\"
 
 numArguments = len(sys.argv)
 arrArguments = sys.argv
 
-
 def urlParse(o):
     # to extract filename from s3 link
-    path = urlparse(o).path
-    filename = path[path.rfind("%2F")+3:]
+    urlFilePath = urlparse(o).path
+    filename = urlFilePath[urlFilePath.rfind("%2F")+3:]
     return filename
 
 
 def urlDownload(url, filename):
     # to download file from link
-    with open(filename, 'wb') as f:
+    with open(savePath+filename, 'wb') as f:
         try:
             response = requests.get(url, stream=True)
         except requests.exceptions.RequestException as err:
@@ -66,11 +66,22 @@ def urlDownload(url, filename):
                 stopTime = time.time()
             sys.stdout.write('\n')
 
+def fileType(filename):
+    # attempt to identify file type from the link - sysdump, config backup, saveCdb, ...
+    if "SysDump" in filename:
+        print("sysdump")
+    elif "config" in filename:
+        print("config backup")
+    elif "saveCdb" in filename:
+        print("savecdb")
+    else:
+        print("unknown")
 
 if (numArguments == 2):
     # make sure we receive the only argument
     url = str(arrArguments[1])
     filename = urlParse(url)
     urlDownload(url, filename)
+    fileType(filename)
 else:
     print("specify url as the only argument")

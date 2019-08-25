@@ -1,5 +1,6 @@
 import sys
 import requests
+import time
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
@@ -9,31 +10,61 @@ arrArguments = sys.argv
 
 
 def urlParse(o):
-    # to extract filename from s3 url
+    # to extract filename from s3 link
     path = urlparse(o).path
     filename = path[path.rfind("%2F")+3:]
     return filename
 
 
 def urlDownload(url, filename):
+    # to download file from link
     with open(filename, 'wb') as f:
-        response = requests.get(url, stream=True)
-        total = response.headers.get('content-length')
+        try:
+            response = requests.get(url, stream=True)
+        except requests.exceptions.RequestException as err:
+            # no response from server DNS, timeout ..  
+            print("URL DOWNLOAD ERROR [INFO]\t: No response from the server. Make sure URL is correct.")
+            print("URL DOWNLOAD ERROR [DEBUG]\t: Error message",err)
+            sys.exit(1)
 
-        if total is None:
+        totalSize = response.headers.get('content-length')
+        status_code = response.status_code
+        if totalSize is None:
+            # server responded but with error
             tree = ElementTree.fromstring(response.content)
-            print("URL DOWNLOAD ERROR: ",tree.find('Message').text)
+            print("URL DOWNLOAD ERROR [INFO]\t: Make sure URL is correct. Server response ", status_code)
+            print("URL DOWNLOAD ERROR [DEBUG]\t: Error message", tree.find('Message').text)
+            sys.exit(1)
+        elif int(totalSize) == 0:
+            # server responded but downloaded file of Zero size
+            print("URL DOWNLOAD ERROR [INFO]\t: Zero file size")
+            sys.exit(1)
         else:
-            downloaded = 0
-            total = int(total)
-            for data in response.iter_content(chunk_size=max(int(total/1000), 1024*1024)):
-                downloaded += len(data)
-                f.write(data)
-                done = int(50*downloaded/total)
-                sys.stdout.write('\r[{}{}]'.format(
-                    '█' * done, '.' * (50-done)))
+            # start downloading file
+            downloadedSize = 0
+            downloadTime = 0
+            totalSize = int(totalSize)
+            stopTime = time.time()
+            sys.stdout.write('\n')
+            for chunkData in response.iter_content(chunk_size=max(int(totalSize/1000), 1024*1024)):
+                startTime = time.time()
+                downloadedSize += len(chunkData)
+                f.write(chunkData)
+                done = int(20*downloadedSize/totalSize)     # scale size of 20 parrots
+                chunkTime = startTime - stopTime            # time took last chunk to download 
+                speed = len(chunkData) / chunkTime
+                downloadTime += chunkTime                   # total download time
+                sys.stdout.write('\r{}\t[{}>{}]\t{} of {}M \t\t{}MB/s \tin {}s'.format(
+                    filename, 
+                    '=' * done, 
+                    ' ' * (20-1-done), 
+                    round(downloadedSize/1024/1024,2), 
+                    round(totalSize/1024/1024,2), 
+                    round(speed/1024/1024,2), 
+                    round(downloadTime)))
                 sys.stdout.flush()
-    sys.stdout.write('\n')
+                stopTime = time.time()
+            sys.stdout.write('\n')
 
 
 if (numArguments == 2):

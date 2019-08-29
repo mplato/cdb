@@ -1,10 +1,21 @@
 import sys
 import requests
 import time
+import datetime
+import tarfile
+import os
+import shutil
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
-savePath = "C:\\Temp\\"
+savePath = "C:/Temp/"
+tmpdir = savePath+"cdb-"+str(time.time())+"/"
+
+def createTmpDir(tmpdir):
+    os.mkdir(tmpdir)
+
+def removeTmpDir(tmpdir):
+    shutil.rmtree(tmpdir)
 
 numArguments = len(sys.argv)
 arrArguments = sys.argv
@@ -18,15 +29,16 @@ def urlParse(o):
 
 def urlDownload(url, filename):
     # to download file from link
-    with open(savePath+filename, 'wb') as f:
+    with open(tmpdir+filename, 'wb') as f:
         try:
             response = requests.get(url, stream=True)
         except requests.exceptions.RequestException as err:
             # no response from server DNS, timeout ..  
             print("URL DOWNLOAD ERROR [INFO]\t: No response from the server. Make sure URL is correct.")
             print("URL DOWNLOAD ERROR [DEBUG]\t: Error message",err)
+            removeTmpDir(tmpdir)
             sys.exit(1)
-
+            
         totalSize = response.headers.get('content-length')
         status_code = response.status_code
         if totalSize is None:
@@ -34,15 +46,18 @@ def urlDownload(url, filename):
             tree = ElementTree.fromstring(response.content)
             print("URL DOWNLOAD ERROR [INFO]\t: Make sure URL is correct. Server response ", status_code)
             print("URL DOWNLOAD ERROR [DEBUG]\t: Error message", tree.find('Message').text)
+            removeTmpDir(tmpdir)
             sys.exit(1)
         elif int(totalSize) == 0:
             # server responded but downloaded file of Zero size
             print("URL DOWNLOAD ERROR [INFO]\t: Zero file size")
+            removeTmpDir(tmpdir)
             sys.exit(1)
         else:
             # start downloading file
             downloadedSize = 0
             downloadTime = 0
+            remainingTime = 0
             totalSize = int(totalSize)
             stopTime = time.time()
             sys.stdout.write('\n')
@@ -54,34 +69,95 @@ def urlDownload(url, filename):
                 chunkTime = startTime - stopTime            # time took last chunk to download 
                 speed = len(chunkData) / chunkTime
                 downloadTime += chunkTime                   # total download time
-                sys.stdout.write('\r{}\t[{}>{}]\t{} of {}M \t\t{}MB/s \tin {}s'.format(
+                remainingTime = (totalSize - downloadedSize)/speed
+                sys.stdout.write('\r{}\t[{}>{}]\t{} of {}M \t\t{}MB/s \tremain {}'.format(
                     filename, 
                     '=' * done, 
                     ' ' * (20-1-done), 
                     round(downloadedSize/1024/1024,2), 
                     round(totalSize/1024/1024,2), 
                     round(speed/1024/1024,2), 
-                    round(downloadTime)))
+                    str(datetime.timedelta(seconds=round(remainingTime)))))
                 sys.stdout.flush()
                 stopTime = time.time()
             sys.stdout.write('\n')
 
 def fileType(filename):
     # attempt to identify file type from the link - sysdump, config backup, saveCdb, ...
+    typeArray = ['unknown','sysDump','configBackup']
+    fileType = 0
     if "SysDump" in filename:
-        print("sysdump")
-    elif "config" in filename:
-        print("config backup")
-    elif "saveCdb" in filename:
-        print("savecdb")
+        fileType = 1
+    elif ("config" in filename) and ("config_export" not in filename):
+        fileType = 2
     else:
-        print("unknown")
+        fileType = 0
+
+    #ask user to specify file type    
+    print("\n----------------------\nWHAT TYPE OF FILE IS IT?\n-----------------------\n")
+    print("[1] SysDump (*default)\n" if fileType == 1 else "[1] SysDump\n")
+    print("[2] Config Backup (*default)\n" if fileType == 2 else "[2] Config Backup\n")
+    userFileType =  input("\nEnter: ")
+
+    if (userFileType.isdigit()) and (0 < int(userFileType) < len(typeArray)):
+        # user made valid choice
+        return typeArray[int(userFileType)]
+    elif (fileType != 0):
+        # no user choice but fileType being identified by url
+        return typeArray[fileType]
+    else :
+        # unknown fileType
+        print("FILE TYPE ERROR [DEBUG]\t: File Type Not Identified")
+        removeTmpDir(tmpdir)
+        sys.exit(1) 
+
+def fileExtract(filename,filetype):
+    # depending on filetype extract version and cdb files
+    archive = tarfile.open(tmpdir+filename, 'r')
+    for item in archive.getmembers():
+
+        if filetype == "sysDump":
+            # looking for database.tgz
+            if "database.tgz" in item.name:
+                archive.extract(item, tmpdir)
+                #print("extracted ",tmpdir+item.name)
+                databaseArchive = tarfile.open(tmpdir+item.name, 'r')
+                for item2 in databaseArchive.getmembers():
+                    #looking for saveCdb.tar
+                    if "database/saveCdb.tar" in item2.name:
+                        databaseArchive.extract(item2,tmpdir)
+                        #print("extracted ",tmpdir+item2.name)
+                        saveCdbArchive = tarfile.open(tmpdir+item2.name, 'r')
+                        saveCdbArchive.extractall(tmpdir+"cdb")
+                        print("SUCCESS FILES EXTRACTED[INFO]: Cdb files have been extracted and stored ",tmpdir+"cdb")
+                        break
+                break
+        elif filetype == "configBackup":
+            # looking for cdb archive 
+            if ("cdb" in item.name) and ("tar.gz" in item.name):
+                archive.extract(item,tmpdir)
+                cdbArchive = tarfile.open(tmpdir+item.name, 'r')
+                cdbArchive.extractall(tmpdir+"cdb")
+                print("SUCCESS FILES EXTRACTED[INFO]: Cdb files have been extracted and stored ",tmpdir+"cdb")
+                break
+        else:
+            print("FILE EXTRACT ERROR[INFO]\t: File type can't be recognized during extraction")
+            removeTmpDir(tmpdir)   
+            sys.exit(1)
+    return 0
 
 if (numArguments == 2):
     # make sure we receive the only argument
     url = str(arrArguments[1])
+    createTmpDir(tmpdir)
+    # extract file name from url
     filename = urlParse(url)
+    # download file
     urlDownload(url, filename)
-    fileType(filename)
+    # guess and ask for file type
+    filetype = fileType(filename)
+    # extract tgz
+    fileExtract(filename,filetype)
+    #removeTmpDir(tmpdir)
 else:
     print("specify url as the only argument")

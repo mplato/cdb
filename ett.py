@@ -21,14 +21,14 @@ numArguments = len(sys.argv)
 arrArguments = sys.argv
 
 def urlParse(o):
-    # to extract filename from s3 link
+    """ to extract filename from s3 link """
     urlFilePath = urlparse(o).path
     filename = urlFilePath[urlFilePath.rfind("%2F")+3:]
     return filename
 
 
 def urlDownload(url, filename):
-    # to download file from link
+    """ to download file from link """
     with open(tmpdir+filename, 'wb') as f:
         try:
             response = requests.get(url, stream=True)
@@ -83,7 +83,7 @@ def urlDownload(url, filename):
             sys.stdout.write('\n')
 
 def fileType(filename):
-    # attempt to identify file type from the link - sysdump, config backup, saveCdb, ...
+    """ attempt to identify file type from the link - sysdump, config backup, saveCdb, ... """
     typeArray = ['unknown','sysDump','configBackup']
     fileType = 0
     if "SysDump" in filename:
@@ -112,7 +112,7 @@ def fileType(filename):
         sys.exit(1) 
 
 def fileExtract(filename,filetype):
-    # depending on filetype extract version and cdb files
+    """ depending on filetype extract version and cdb files """
     archive = tarfile.open(tmpdir+filename, 'r')
     for item in archive.getmembers():
 
@@ -146,6 +146,10 @@ def fileExtract(filename,filetype):
             sys.exit(1)
     return 0
 
+def sbxVersion():
+    """ input sbx version"""
+    return 0
+
 if (numArguments == 2):
     # make sure we receive the only argument
     url = str(arrArguments[1])
@@ -158,6 +162,7 @@ if (numArguments == 2):
     filetype = fileType(filename)
     # extract tgz
     fileExtract(filename,filetype)
+    version = sbxVersion()
     #removeTmpDir(tmpdir)
 else:
     print("specify url as the only argument")
